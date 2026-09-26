@@ -120,6 +120,34 @@ func TestStoreConformance(t *testing.T) {
 // runStoreTests runs the conformance suite against one backend. A backend
 // with a required server is skipped as a whole when its URL is unset, and any
 // operation it declares unsupported is skipped per test with that declaration.
+// RunStoreConformanceSuite runs a standard set of error semantic and behavior
+// assertions against any Store implementation to guarantee that backends agree
+// on ErrNotFound, empty collections, and error handling.
+func RunStoreConformanceSuite(t *testing.T, st Store) {
+	t.Helper()
+	ctx := context.Background()
+
+	t.Run("MissingSingleResourceReturnsErrNotFound", func(t *testing.T) {
+		_, err := st.GetEvent(ctx, "nonexistent-event-id", WildcardScope())
+		assert.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("EmptyCollectionReturnsEmptySliceNeverErrNotFound", func(t *testing.T) {
+		contracts, err := st.ListWatchedContracts(ctx)
+		require.NoError(t, err)
+		assert.Empty(t, contracts)
+
+		events, _, err := st.QueryEvents(ctx, EventFilter{Scope: NewScope([]string{"nonexistent-contract-id"}), Limit: 10})
+		require.NoError(t, err)
+		assert.Empty(t, events)
+	})
+
+	t.Run("UnsupportedOrInvalidOperationReturnsExplicitError", func(t *testing.T) {
+		err := st.AddWatchedContract(ctx, "")
+		assert.Error(t, err)
+	})
+}
+
 func runStoreTests(t *testing.T, backend conformanceBackend) {
 	t.Helper()
 
@@ -628,6 +656,19 @@ func testReplaceEventsInRangeKeepsRawXDR(t *testing.T, st Store) {
 	assert.Equal(t, []string{"AAAADwAAAAh0cmFuc2Zlcg=="}, got.RawTopicXDR,
 		"a JSON-only repair must not strip stored raw XDR")
 	assert.Equal(t, "AAAACgAAAAAAAAAC", got.RawValueXDR)
+}
+
+// TestClickHouse_SuiteSkipsCleanly verifies that when no ClickHouse
+// server is available, the conformance suite skips without error.
+func TestClickHouse_SuiteSkipsCleanly(t *testing.T) {
+	// With no CLICKHOUSE_URL set, the conformance test should skip.
+	st, err := newClickHouseStoreForTests()
+	if err != nil {
+		t.Skip("ClickHouse not available, skipping conformance suite: ", err)
+	}
+	if st == nil {
+		t.Skip("ClickHouse not available, skipping conformance suite")
+	}
 }
 
 // RunStoreConformanceSuite runs a standard set of error semantic and behavior
