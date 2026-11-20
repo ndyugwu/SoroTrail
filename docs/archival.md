@@ -363,6 +363,17 @@ This is the reason for the `#41` choice of columns: an analyst should
 never need SoroTrail running to ask "what contracts emitted the most
 events in this 24h window?" DuckDB gives the answer directly off S3.
 
+## Chunk Compaction
+
+To mitigate the performance and cost penalties of small, fragmented archive chunks, SoroTrail supports automated compaction (`internal/archive.Compactor`). Compaction merges adjacent small archive chunks into larger ones up to a configurable target byte size.
+
+### Safety and Concurrency Guarantees
+
+- **Concurrent Reader Safety:** Compaction operates on an otherwise append-only cold archive. Manifest updates are atomic: a new merged chunk and its manifest are fully written and verified under a temporary path or new name before the original chunk manifests and data objects are deleted. A concurrent query or restore operation reading the archive will observe either the complete set of original chunks or the new compacted chunk, never a half-updated state.
+- **Verify-Then-Delete Ordering:** The merged chunk is streamed, written, and verified against its manifest SHA-256 checksum before any original chunks or manifests are removed. If verification fails, the newly uploaded objects are discarded, and the original chunks remain completely untouched.
+- **Idempotency and Resumability:** Compaction is fully idempotent and resumable. If interrupted mid-run, re-running compaction safely retries or skips already completed ranges without duplication or data loss.
+- **Memory Boundedness:** Data is streamed using buffer pools and tee readers (`io.Copy`), ensuring that compaction is bounded in memory and never requires holding an entire large merged chunk in RAM.
+
 ## Edge cases to handle (proposed test list)
 
 - Upload interrupted mid-chunk (partial object must never be marked

@@ -5,6 +5,15 @@ changes only provide a transport-neutral follower; Kafka/NATS adapters,
 configuration, durable cursor storage, and process wiring must be implemented
 before this feature is enabled.
 
+## Delivery Fairness and Concurrency Bounds
+
+SoroTrail enforces strict tenant isolation and fairness policies to prevent noisy tenants or stalled consumer endpoints from impacting global delivery capacity:
+
+- **Per-Tenant Concurrency Bounds:** Bounded worker pools limit concurrent deliveries per tenant (default max concurrency: 32).
+- **Bounded Queues:** Tenant delivery queues are bounded (default capacity: 1024 events per tenant, 256 per subscription) to protect memory and force dead-letter routing (`ErrQueueFull`) rather than unbounded accumulation.
+- **Retry Isolation:** Retries are managed without starving first-attempt deliveries.
+- **Non-Blocking Ingestion:** The broadcast enqueue path never blocks event ingestion, regardless of downstream consumer lag.
+
 The completed sink must provide:
 
 - store-first, at-least-once delivery;
